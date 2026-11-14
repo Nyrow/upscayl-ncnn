@@ -210,7 +210,8 @@ static bool is_tga_file(const path_t &path)
 {
     path_t extension = get_file_extension(path);
 #if _WIN32
-    std::transform(extension.begin(), extension.end(), extension.begin(), towlower);
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](wchar_t ch) { return (wchar_t)std::towlower(ch); });
     return extension == L"tga";
 #else
     std::transform(extension.begin(), extension.end(), extension.begin(),
@@ -223,7 +224,7 @@ static void print_usage()
 {
     fprintf(stderr, "Usage: upscayl-bin -i infile -o outfile [options]...\n\n");
     fprintf(stderr, "  -h                   show this help\n");
-    fprintf(stderr, "  -i input-path        input image path (jpg/png/webp) or directory\n");
+    fprintf(stderr, "  -i input-path        input image path (jpg/png/webp/tga) or directory\n");
     fprintf(stderr, "  -o output-path       output image path (jpg/png/webp) or directory\n");
     fprintf(stderr, "  -z model-scale       scale according to the model (can be 2, 3, 4. default=4)\n");
     fprintf(stderr, "  -s output-scale      custom output scale (can be 2, 3, 4. default=4)\n");
