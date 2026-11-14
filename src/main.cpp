@@ -220,12 +220,45 @@ static bool is_tga_file(const path_t &path)
 #endif
 }
 
+#if _WIN32
+// Windows processing uses BGR(A), which matches TGA's native byte order.
+static int write_tga_image(const wchar_t *filepath, int w, int h, int c, const void *bgrdata)
+{
+    if ((c != 3 && c != 4) || w <= 0 || h <= 0 || w > 65535 || h > 65535)
+        return 0;
+    FILE *fp = _wfopen(filepath, L"wb");
+    if (!fp)
+        return 0;
+    unsigned char header[18] = {};
+    header[2] = 2;
+    header[12] = (unsigned char)(w & 0xff);
+    header[13] = (unsigned char)((w >> 8) & 0xff);
+    header[14] = (unsigned char)(h & 0xff);
+    header[15] = (unsigned char)((h >> 8) & 0xff);
+    header[16] = (unsigned char)(c * 8);
+    header[17] = (unsigned char)(0x20 | (c == 4 ? 8 : 0)); // Top-left origin; 8 alpha bits for BGRA.
+    bool success = fwrite(header, 1, sizeof(header), fp) == sizeof(header);
+    const size_t rowBytes = (size_t)w * (size_t)c;
+    const unsigned char *pixels = (const unsigned char *)bgrdata;
+    for (int y = 0; success && y < h; y++)
+        success = fwrite(pixels + (size_t)y * rowBytes, 1, rowBytes, fp) == rowBytes;
+    if (fclose(fp) != 0)
+        success = false;
+    return success ? 1 : 0;
+}
+#else
+static int write_tga_image(const char *filepath, int w, int h, int c, const void *rgbdata)
+{
+    return stbi_write_tga(filepath, w, h, c, rgbdata);
+}
+#endif
+
 static void print_usage()
 {
     fprintf(stderr, "Usage: upscayl-bin -i infile -o outfile [options]...\n\n");
     fprintf(stderr, "  -h                   show this help\n");
     fprintf(stderr, "  -i input-path        input image path (jpg/png/webp/tga) or directory\n");
-    fprintf(stderr, "  -o output-path       output image path (jpg/png/webp) or directory\n");
+    fprintf(stderr, "  -o output-path       output image path (jpg/png/webp/tga) or directory\n");
     fprintf(stderr, "  -z model-scale       scale according to the model (can be 2, 3, 4. default=4)\n");
     fprintf(stderr, "  -s output-scale      custom output scale (can be 2, 3, 4. default=4)\n");
     fprintf(stderr, "  -r resize            resize output to dimension (default=WxH:default), use '-r help' for more details\n");
@@ -237,7 +270,7 @@ static void print_usage()
     fprintf(stderr, "  -g gpu-id            gpu device to use (default=auto) can be 0,1,2 for multi-gpu\n");
     fprintf(stderr, "  -j load:proc:save    thread count for load/proc/save (default=1:2:2) can be 1:2,2,2:2 for multi-gpu\n");
     fprintf(stderr, "  -x                   enable tta mode\n");
-    fprintf(stderr, "  -f format            output image format (jpg/png/webp, default=ext/png)\n");
+    fprintf(stderr, "  -f format            output image format (jpg/png/webp/tga, default=ext/png)\n");
     fprintf(stderr, "  -v                   verbose output\n");
 }
 
@@ -742,6 +775,10 @@ void *save(void *args)
             success = stbi_write_png(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data, 0);
 #endif
         }
+        else if (ext == PATHSTR("tga") || ext == PATHSTR("TGA"))
+        {
+            success = write_tga_image(v.outpath.c_str(), v.outimage.w, v.outimage.h, v.outimage.elempack, v.outimage.data);
+        }
         else if (ext == PATHSTR("jpg") || ext == PATHSTR("JPG") || ext == PATHSTR("jpeg") || ext == PATHSTR("JPEG"))
         {
 #if _WIN32
@@ -1047,6 +1084,10 @@ int main(int argc, char **argv)
         {
             format = PATHSTR("jpg");
         }
+        else if (ext == PATHSTR("tga") || ext == PATHSTR("TGA"))
+        {
+            format = PATHSTR("tga");
+        }
         else
         {
             fprintf(stderr, "🚨 Error: Invalid output path extension or type!\n");
@@ -1054,7 +1095,7 @@ int main(int argc, char **argv)
         }
     }
 
-    if (format != PATHSTR("png") && format != PATHSTR("webp") && format != PATHSTR("jpg"))
+    if (format != PATHSTR("png") && format != PATHSTR("webp") && format != PATHSTR("jpg") && format != PATHSTR("tga"))
     {
         fprintf(stderr, "🚨 Error: Invalid format provided!\n");
         return -1;
