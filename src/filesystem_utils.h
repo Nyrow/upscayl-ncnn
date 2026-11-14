@@ -30,7 +30,7 @@ typedef std::string path_t;
 
 bool is_image_file(const std::string &filename)
 {
-    const std::vector<std::string> extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp"};
+    const std::vector<std::string> extensions = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tga"};
 
     // Check if the filename contains a dot
     size_t last_dot = filename.find_last_of(".");
