@@ -10,13 +10,20 @@
 namespace fs = std::filesystem;
 
 #if _WIN32
-// image decoder and encoder with wic
+// Use stb_image for TGA input (WIC does not reliably support TGA).
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_NO_PSD
+#define STBI_NO_GIF
+#define STBI_NO_HDR
+#define STBI_NO_PIC
+#define STBI_NO_STDIO
+#include "stb_image.h"
+// Keep WIC for the other Windows image formats and for image encoding.
 #include "wic_image.h"
 #else // _WIN32
 // image decoder and encoder with stb
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_PSD
-#define STBI_NO_TGA
 #define STBI_NO_GIF
 #define STBI_NO_HDR
 #define STBI_NO_PIC
@@ -194,6 +201,23 @@ static bool parse_optarg_resize(const char *optarg, int *width, int *height, int
 #include "realesrgan.h"
 
 #include "filesystem_utils.h"
+#include <cctype>
+#if _WIN32
+#include <cwctype>
+#endif
+
+static bool is_tga_file(const path_t &path)
+{
+    path_t extension = get_file_extension(path);
+#if _WIN32
+    std::transform(extension.begin(), extension.end(), extension.begin(), towlower);
+    return extension == L"tga";
+#else
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char ch) { return (char)std::tolower(ch); });
+    return extension == "tga";
+#endif
+}
 
 static void print_usage()
 {
@@ -359,7 +383,31 @@ void *load(void *args)
                 {
                     // not webp, try jpg png etc.
 #if _WIN32
-                    pixeldata = wic_decode_image(imagepath.c_str(), &w, &h, &c);
+                    if (is_tga_file(imagepath))
+                    {
+                        // stb_image returns RGB(A); the Windows processing pipeline expects BGR(A).
+                        pixeldata = stbi_load_from_memory(filedata, length, &w, &h, &c, 0);
+                        if (pixeldata)
+                        {
+                            if (c != 3 && c != 4)
+                            {
+                                stbi_image_free(pixeldata);
+                                pixeldata = 0;
+                            }
+                            else
+                            {
+                                for (int pixel = 0; pixel < w * h; pixel++)
+                                {
+                                    unsigned char *channels = pixeldata + pixel * c;
+                                    std::swap(channels[0], channels[2]);
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        pixeldata = wic_decode_image(imagepath.c_str(), &w, &h, &c);
+                    }
                     if (pixeldata)
                     {
                         // WIC channel conversion logic similar to stb_image
